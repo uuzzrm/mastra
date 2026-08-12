@@ -605,8 +605,11 @@ export class ProcessorRunner {
     result?: OutputResult,
   ): Promise<MessageList> {
     for (const [index, processorOrWorkflow] of this.outputProcessors.entries()) {
-      const allNewMessages = messageList.get.response.db();
-      let processableMessages: MastraDBMessage[] = [...allNewMessages];
+      // A streamed step can be persisted before the final processor pass runs.
+      // Those messages are still new to this MessageList, even though they are
+      // no longer in the unsaved response set.
+      const allResponseMessages = messageList.getPersisted.response.db();
+      let processableMessages: MastraDBMessage[] = [...allResponseMessages];
       const idsBeforeProcessing = processableMessages.map((m: MastraDBMessage) => m.id);
       const check = messageList.makeMessageSourceChecker();
 
