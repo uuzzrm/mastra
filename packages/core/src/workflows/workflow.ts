@@ -2516,6 +2516,9 @@ export class Workflow<
    * @param options.runId Optional custom run ID, defaults to a random UUID
    * @param options.resourceId Optional resource ID to associate with this run
    * @param options.disableScorers Optional flag to disable scorers for this run
+   * @param options.shouldPersistSnapshot Optional per-run override of the workflow's
+   *   snapshot-persistence policy. Processor executions pass false so transient
+   *   runs never write to storage.
    * @returns A Run instance that can be used to execute the workflow
    */
   async createRun(options?: {
@@ -2524,6 +2527,8 @@ export class Workflow<
     disableScorers?: boolean;
     /** Optional pubsub instance for streaming events. If not provided, a new EventEmitterPubSub is created. */
     pubsub?: PubSub;
+    /** Per-run override of the workflow's snapshot-persistence policy. */
+    shouldPersistSnapshot?: boolean;
   }): Promise<Run<TEngineType, TSteps, TState, TInput, TOutput, TRequestContext>> {
     if (this.stepFlow.length === 0) {
       throw new Error(
@@ -2565,14 +2570,17 @@ export class Workflow<
         validateInputs: this.#options?.validateInputs,
         workflowEngineType: this.engineType,
         pubsub: options?.pubsub,
+        shouldPersistSnapshot: options?.shouldPersistSnapshot,
       });
 
     this.#runs.set(runIdToUse, run);
 
-    const shouldPersistSnapshot = this.#options.shouldPersistSnapshot({
-      workflowStatus: run.workflowRunStatus,
-      stepResults: {},
-    });
+    const shouldPersistSnapshot =
+      options?.shouldPersistSnapshot ??
+      this.#options.shouldPersistSnapshot({
+        workflowStatus: run.workflowRunStatus,
+        stepResults: {},
+      });
 
     // A freshly-minted run for a workflow that never persists a snapshot (e.g. the
     // transient processor workflows from #17344) cannot have a stored row, so this
@@ -3238,6 +3246,12 @@ export class Run<
   readonly disableScorers?: boolean;
 
   /**
+   * Per-run override of the workflow's snapshot-persistence policy.
+   * Set by processor executions so transient runs never write to storage.
+   */
+  readonly shouldPersistSnapshot?: boolean;
+
+  /**
    * Options around how to trace this run
    */
   readonly tracingPolicy?: TracingPolicy;
@@ -3325,6 +3339,8 @@ export class Run<
     workflowEngineType: WorkflowEngineType;
     /** Optional pubsub instance. If not provided, a new EventEmitterPubSub is created. */
     pubsub?: PubSub;
+    /** Per-run override of the workflow's snapshot-persistence policy. */
+    shouldPersistSnapshot?: boolean;
   }) {
     this.workflowId = params.workflowId;
     this.runId = params.runId;
@@ -3345,6 +3361,7 @@ export class Run<
     this.requestContextSchema = params.requestContextSchema;
     this.workflowRunStatus = 'pending';
     this.workflowEngineType = params.workflowEngineType;
+    this.shouldPersistSnapshot = params.shouldPersistSnapshot;
   }
 
   public get abortController(): AbortController {
@@ -3559,6 +3576,7 @@ export class Run<
       format,
       outputOptions,
       perStep,
+      shouldPersistSnapshot: this.shouldPersistSnapshot,
     });
 
     if (result.status !== 'suspended') {

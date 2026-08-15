@@ -540,8 +540,11 @@ export class ProcessorRunner {
     writer?: ProcessorStreamWriter,
     abortSignal?: AbortSignal,
   ): Promise<ProcessorStepOutput> {
-    // Create a run and start the workflow
-    const run = await workflow.createRun();
+    // Create a run and start the workflow. Processor executions are transient:
+    // they never persist snapshots, even when the workflow was built by the user
+    // (which keeps the default shouldPersistSnapshot). Otherwise the stream phase
+    // would write a snapshot per chunk (#19605).
+    const run = await workflow.createRun({ shouldPersistSnapshot: false });
     const result = await run.start({
       // Cast to allow processorStates/abortSignal - passed through to workflow processor steps
       // but not part of the official ProcessorStepOutput schema

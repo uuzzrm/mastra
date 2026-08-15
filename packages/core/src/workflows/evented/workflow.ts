@@ -1711,6 +1711,8 @@ export class EventedWorkflow<
     runId?: string;
     resourceId?: string;
     disableScorers?: boolean;
+    /** Per-run override of the workflow's snapshot-persistence policy. */
+    shouldPersistSnapshot?: boolean;
   }): Promise<Run<TEngineType, TSteps, TState, TInput, TOutput>> {
     if (this.stepFlow.length === 0) {
       throw new Error(
@@ -1758,14 +1760,17 @@ export class EventedWorkflow<
         stateSchema: this.stateSchema,
         workflowEngineType: this.engineType,
         tracingPolicy: this.options?.tracingPolicy,
+        shouldPersistSnapshot: options?.shouldPersistSnapshot,
       });
 
     this.runs.set(runIdToUse, run);
 
-    const shouldPersistSnapshot = this.options?.shouldPersistSnapshot?.({
-      workflowStatus: run.workflowRunStatus,
-      stepResults: {},
-    });
+    const shouldPersistSnapshot =
+      options?.shouldPersistSnapshot ??
+      this.options?.shouldPersistSnapshot?.({
+        workflowStatus: run.workflowRunStatus,
+        stepResults: {},
+      });
 
     // A freshly-minted run for a workflow that never persists a snapshot cannot have
     // a stored row, so this existence read would be a guaranteed miss. Skipping it
@@ -1839,6 +1844,8 @@ export class EventedRun<
     stateSchema?: StandardSchemaWithJSON<TState>;
     workflowEngineType: WorkflowEngineType;
     tracingPolicy?: TracingPolicy;
+    /** Per-run override of the workflow's snapshot-persistence policy. */
+    shouldPersistSnapshot?: boolean;
   }) {
     super(params);
     this.serializedStepGraph = params.serializedStepGraph;

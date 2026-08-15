@@ -91,6 +91,19 @@ export class DefaultExecutionEngine extends ExecutionEngine {
    */
   protected lastPersistedStatusByRun = new Map<string, WorkflowRunStatus>();
 
+  /** Per-run snapshot-persistence overrides set by execute(), keyed by runId. */
+  protected persistOverridesByRun = new Map<string, boolean>();
+
+  /** Returns the per-run snapshot-persistence override for a run, if one was set. */
+  getPersistOverride(runId: string): boolean | undefined {
+    return this.persistOverridesByRun.get(runId);
+  }
+
+  /** Clears the per-run snapshot-persistence override (used on run cleanup). */
+  clearPersistOverride(runId: string): void {
+    this.persistOverridesByRun.delete(runId);
+  }
+
   /** Returns the last status persisted for a given run in this process, if any. */
   getLastPersistedStatus(runId: string): WorkflowRunStatus | undefined {
     return this.lastPersistedStatusByRun.get(runId);
@@ -761,6 +774,8 @@ export class DefaultExecutionEngine extends ExecutionEngine {
       includeResumeLabels?: boolean;
     };
     perStep?: boolean;
+    /** Per-run override of the workflow's snapshot-persistence policy. */
+    shouldPersistSnapshot?: boolean;
     /** Trace IDs for creating child spans in durable execution */
     tracingIds?: {
       traceId: string;
@@ -787,6 +802,14 @@ export class DefaultExecutionEngine extends ExecutionEngine {
 
     //clear retryCounts
     this.retryCounts.clear();
+
+    // Record the per-run snapshot-persistence override so persistStepUpdate
+    // (and any other storage write in this run's path) honors it.
+    if (params.shouldPersistSnapshot !== undefined) {
+      this.persistOverridesByRun.set(runId, params.shouldPersistSnapshot);
+    } else {
+      this.persistOverridesByRun.delete(runId);
+    }
 
     if (steps.length === 0) {
       const empty_graph_error = new MastraError({
@@ -1018,6 +1041,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
         // overwrite it with `running` mid-resume.
         if (lastOutput.result.status !== 'suspended' && lastOutput.result.status !== 'paused') {
           this.clearLastPersistedStatus(runId);
+          this.clearPersistOverride(runId);
         }
 
         return {
@@ -1122,6 +1146,7 @@ export class DefaultExecutionEngine extends ExecutionEngine {
     // `running` mid-resume.
     if (result.status !== 'suspended') {
       this.clearLastPersistedStatus(runId);
+      this.clearPersistOverride(runId);
     }
 
     if (params.outputOptions?.includeState) {

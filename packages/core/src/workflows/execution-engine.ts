@@ -211,5 +211,7 @@ export abstract class ExecutionEngine extends MastraBase {
       includeResumeLabels?: boolean;
     };
     perStep?: boolean;
+    /** Per-run override of the workflow's snapshot-persistence policy. */
+    shouldPersistSnapshot?: boolean;
   }): Promise<TOutput>;
 }

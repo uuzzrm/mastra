@@ -1331,6 +1331,59 @@ describe('createRun storage existence read (issue #19015)', () => {
   });
 });
 
+describe('createRun per-run snapshot-persistence override (issue #19605)', () => {
+  const ioSchema = z.object({ value: z.string() });
+  const buildStep = () =>
+    createStep({
+      id: 'passthrough',
+      inputSchema: ioSchema,
+      outputSchema: ioSchema,
+      execute: async ({ inputData }) => inputData,
+    });
+
+  it('skips all snapshot writes when createRun overrides shouldPersistSnapshot to false', async () => {
+    const storage = new MockStore();
+    const workflow = createWorkflow({
+      id: 'override-no-persist-wf',
+      inputSchema: ioSchema,
+      outputSchema: ioSchema,
+    })
+      .then(buildStep())
+      .commit();
+    new Mastra({ logger: false, storage, workflows: { 'override-no-persist-wf': workflow } });
+
+    const workflowsStore = await storage.getStore('workflows');
+    const persistSpy = vi.spyOn(workflowsStore!, 'persistWorkflowSnapshot');
+
+    const run = await workflow.createRun({ shouldPersistSnapshot: false });
+    await run.start({ inputData: { value: 'hello' } });
+
+    // A processor-style run must not write the initial snapshot, any step
+    // updates, or a final snapshot.
+    expect(persistSpy).not.toHaveBeenCalled();
+  });
+
+  it('still persists by default when no override is given', async () => {
+    const storage = new MockStore();
+    const workflow = createWorkflow({
+      id: 'override-persist-wf',
+      inputSchema: ioSchema,
+      outputSchema: ioSchema,
+    })
+      .then(buildStep())
+      .commit();
+    new Mastra({ logger: false, storage, workflows: { 'override-persist-wf': workflow } });
+
+    const workflowsStore = await storage.getStore('workflows');
+    const persistSpy = vi.spyOn(workflowsStore!, 'persistWorkflowSnapshot');
+
+    const run = await workflow.createRun();
+    await run.start({ inputData: { value: 'hello' } });
+
+    expect(persistSpy).toHaveBeenCalled();
+  });
+});
+
 describe('concurrent stream close', () => {
   // An abandoned stream can only be observed by bounding the read — a plain drain
   // would hang the suite rather than fail it.

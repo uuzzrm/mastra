@@ -177,7 +177,10 @@ export async function persistStepUpdate(
   const operationId = `workflow.${workflowId}.run.${runId}.path.${JSON.stringify(executionContext.executionPath)}.stepUpdate${phase ? `.${phase}` : ''}`;
 
   await engine.wrapDurableOperation(operationId, async () => {
-    const shouldPersistSnapshot = engine.options?.shouldPersistSnapshot?.({ stepResults, workflowStatus });
+    // A per-run override (set by processor executions) wins over the engine's
+    // workflow-level policy so transient runs never write snapshots.
+    const shouldPersistSnapshot =
+      engine.getPersistOverride?.(runId) ?? engine.options?.shouldPersistSnapshot?.({ stepResults, workflowStatus });
 
     if (!shouldPersistSnapshot) {
       return;

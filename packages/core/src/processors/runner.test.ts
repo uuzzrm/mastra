@@ -3797,3 +3797,46 @@ describe('ProcessorRunner', () => {
     });
   });
 });
+
+describe('ProcessorRunner - workflow output processors', () => {
+  it('executes workflow output processors without snapshot persistence', async () => {
+    const processorStep = (id: string) =>
+      createStep({
+        id,
+        inputSchema: ProcessorStepSchema,
+        outputSchema: ProcessorStepSchema,
+        execute: async ({ inputData }) => inputData,
+      });
+
+    const workflow = createWorkflow({
+      id: 'stream-guardrails',
+      inputSchema: ProcessorStepSchema,
+      outputSchema: ProcessorStepSchema,
+    })
+      .then(processorStep('a'))
+      .map(async ({ inputData }) => inputData)
+      .commit();
+
+    const createRunSpy = vi.spyOn(workflow, 'createRun');
+    const chunk = { type: 'text-delta', payload: { text: 'hello', id: 'text-1' }, runId: '1', from: ChunkFrom.AGENT };
+    const passthroughOutput = { phase: 'outputStream', part: chunk };
+    createRunSpy.mockResolvedValue({
+      start: vi.fn().mockResolvedValue({ status: 'success', result: passthroughOutput }),
+    } as any);
+
+    const runner = new ProcessorRunner({
+      inputProcessors: [],
+      outputProcessors: [workflow as any],
+      logger: mockLogger,
+      agentName: 'test-agent',
+    });
+
+    const processorStates = new Map<string, any>();
+    const result = await runner.processPart(chunk as any, processorStates as any);
+
+    // The runner must opt the workflow out of snapshot persistence so the
+    // stream phase never writes a snapshot per chunk (issue #19605).
+    expect(createRunSpy).toHaveBeenCalledWith({ shouldPersistSnapshot: false });
+    expect(result.part).toBe(chunk);
+  });
+});
