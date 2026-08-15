@@ -44,7 +44,7 @@ import type { SSEStreamingApi } from 'hono/streaming';
 import { streamSSE } from 'hono/streaming';
 import { SSETransport } from 'hono-mcp-server-sse-transport';
 
-import { withMastraToolStrictMeta } from '../shared/mastra-tool-meta';
+import { normalizeResourceUriMeta, withMastraToolStrictMeta } from '../shared/mastra-tool-meta';
 import { broadcastNotification } from './notificationBroadcast';
 import { ServerPromptActions } from './promptActions';
 import { ServerResourceActions } from './resourceActions';
@@ -807,16 +807,9 @@ export class MCPServer extends MCPServerBase {
           const toolMeta = withMastraToolStrictMeta(tool.mcp?._meta, tool.strict);
           if (toolMeta) {
             // Normalize UI metadata for backward compatibility with older hosts:
-            // If _meta.ui.resourceUri is set, also set the legacy flat key and vice versa
-            const uiMeta = toolMeta.ui as { resourceUri?: string } | undefined;
-            const legacyUri = toolMeta[RESOURCE_URI_META_KEY] as string | undefined;
-            if (uiMeta?.resourceUri && !legacyUri) {
-              toolSpec._meta = { ...toolMeta, [RESOURCE_URI_META_KEY]: uiMeta.resourceUri };
-            } else if (legacyUri && !uiMeta?.resourceUri) {
-              toolSpec._meta = { ...toolMeta, ui: { ...((toolMeta.ui as object) ?? {}), resourceUri: legacyUri } };
-            } else {
-              toolSpec._meta = toolMeta;
-            }
+            // if either the nested or the legacy flat resource URI key is set,
+            // mirror it to the other so both host generations can resolve the app.
+            toolSpec._meta = normalizeResourceUriMeta(toolMeta);
           }
           return toolSpec;
         }),
@@ -1005,6 +998,21 @@ export class MCPServer extends MCPServerBase {
               text: typeof result === 'string' ? result : JSON.stringify(result),
             },
           ];
+        }
+
+        // Carry the tool's _meta onto the call result. MCP Apps hosts detect
+        // which app to render from the result's ui.resourceUri, so a tool
+        // declared with _meta.ui.resourceUri must echo it here (with the same
+        // nested/flat key normalization tools/list applies). Author-returned
+        // _meta from execute() takes precedence over the declared value.
+        const toolMeta = withMastraToolStrictMeta(tool.mcp?._meta, tool.strict);
+        const resultMeta =
+          result !== null && typeof result === 'object' && !Array.isArray(result) && '_meta' in result
+            ? (result as { _meta?: Record<string, unknown> })._meta
+            : undefined;
+        const meta = toolMeta || resultMeta ? { ...(toolMeta ?? {}), ...(resultMeta ?? {}) } : undefined;
+        if (meta && Object.keys(meta).length > 0) {
+          response._meta = normalizeResourceUriMeta(meta);
         }
 
         return response;

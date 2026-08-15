@@ -2986,6 +2986,110 @@ describe('MCPServer with Tool Output Schema', () => {
   });
 });
 
+describe('MCPServer - tools/call _meta propagation (MCP Apps)', () => {
+  let metaServer: MCPServer;
+
+  beforeAll(() => {
+    metaServer = new MCPServer({
+      name: 'MCP Apps meta test server',
+      version: '1.0.0',
+      tools: {
+        appTool: {
+          description: 'Tool backed by an MCP App resource',
+          parameters: z.object({ query: z.string() }),
+          outputSchema: z.object({
+            vendors: z.array(z.object({ name: z.string() })),
+          }),
+          mcp: {
+            _meta: { ui: { resourceUri: 'ui://demo/vendors' } },
+          },
+          execute: async () => ({ vendors: [{ name: 'A' }, { name: 'B' }] }),
+        },
+        legacyUriTool: {
+          description: 'Tool that declares the legacy flat ui/resourceUri key',
+          parameters: z.object({ query: z.string() }),
+          mcp: {
+            _meta: { 'ui/resourceUri': 'ui://demo/legacy' },
+          },
+          execute: async () => ({ result: 'done' }),
+        },
+        plainTool: {
+          description: 'Tool with no MCP app metadata',
+          parameters: z.object({ query: z.string() }),
+          execute: async () => ({ result: 'done' }),
+        },
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await metaServer.close();
+  });
+
+  const callTool = async (name: string, args: Record<string, unknown>) => {
+    const serverInstance = metaServer.getServer();
+    // @ts-expect-error - accessing internal request handlers for testing
+    const callToolHandler = serverInstance._requestHandlers.get('tools/call');
+    expect(callToolHandler).toBeDefined();
+    return callToolHandler!(
+      {
+        jsonrpc: '2.0' as const,
+        id: 'test-' + name,
+        method: 'tools/call' as const,
+        params: { name, arguments: args },
+      },
+      makeMockExtra(),
+    );
+  };
+
+  it('should include the declared _meta on tools/call results, with both resourceUri key forms', async () => {
+    const result = await callTool('appTool', { query: 'hotel' });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({ vendors: [{ name: 'A' }, { name: 'B' }] });
+    // MCP Apps hosts read the resource URI off the call result, matching tools/list
+    expect((result as { _meta?: Record<string, unknown> })._meta).toEqual({
+      ui: { resourceUri: 'ui://demo/vendors' },
+      'ui/resourceUri': 'ui://demo/vendors',
+    });
+  });
+
+  it('should normalize the legacy flat ui/resourceUri key into the nested form', async () => {
+    const result = await callTool('legacyUriTool', { query: 'x' });
+
+    expect(result.isError).toBeFalsy();
+    expect((result as { _meta?: Record<string, unknown> })._meta).toEqual({
+      'ui/resourceUri': 'ui://demo/legacy',
+      ui: { resourceUri: 'ui://demo/legacy' },
+    });
+  });
+
+  it('should preserve _meta returned by the tool alongside the declared metadata', async () => {
+    // @ts-expect-error - accessing internal converted tools for testing
+    const internalTool = metaServer.convertedTools.appTool;
+    vi.spyOn(internalTool, 'execute').mockResolvedValue({
+      content: [{ type: 'text', text: 'Found 1 vendor' }],
+      structuredContent: { vendors: [{ name: 'A' }] },
+      _meta: { runtime: { source: 'cache' } },
+    });
+
+    const result = await callTool('appTool', { query: 'hotel' });
+
+    expect((result as { _meta?: Record<string, unknown> })._meta).toEqual({
+      ui: { resourceUri: 'ui://demo/vendors' },
+      'ui/resourceUri': 'ui://demo/vendors',
+      runtime: { source: 'cache' },
+    });
+  });
+
+  it('should leave _meta unset when the tool declares none', async () => {
+    const result = await callTool('plainTool', { query: 'x' });
+
+    expect(result.isError).toBeFalsy();
+    expect((result as { _meta?: Record<string, unknown> })._meta).toBeUndefined();
+  });
+});
+
 describe('MCPServer - Tool Input Validation', () => {
   let validationServer: MCPServer;
   let validationClient: InternalMastraMCPClient;
