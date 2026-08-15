@@ -2,4 +2,4 @@
 '@mastra/core': patch
 ---
 
-File chunks now keep the filename from provider-generated files (e.g. Gemini) and preserve it when chunks are rebuilt into message parts.
+File uploads now keep the filename supplied by the provider (e.g. Gemini) and fall back to `generated.<ext>` when none is provided.

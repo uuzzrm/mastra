@@ -787,7 +787,7 @@ describe('convertFullStreamChunkToMastra', () => {
 
       const result = convertFullStreamChunkToMastra(chunk, { runId: 'test-run-123' });
 
-      expect(result).toEqual({
+      expect(result).toStrictEqual({
         type: 'file',
         runId: 'test-run-123',
         from: ChunkFrom.AGENT,
